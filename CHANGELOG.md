@@ -15,6 +15,7 @@
 ### Fixes
 
 - Web: keep the Publishers directory responsive for high-volume publishers by using bounded published-item previews, and abort stale unified-search plugin requests during route changes.
+- ClawScan: include package `openclaw.environment` env/config declarations in package review prompts so declared plugin runtime requirements are not reported as missing (#2013).
 - Uploads: accept PowerShell `.ps1`, `.psm1`, and `.psd1` files as text-based skill files while keeping normal scan coverage (#897) (thanks @cute-omega).
 - Web: point skill, plugin, and soul owner links directly at canonical `/p/:handle` publisher profiles instead of legacy redirect routes.
 - Web: align signed-in header avatar controls across desktop and mobile so the menu trigger keeps consistent sizing, truncation, and dropdown styling (#2124) (thanks @vyctorbrzezowski).

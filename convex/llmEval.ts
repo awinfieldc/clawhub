@@ -38,6 +38,11 @@ const llmEvalModerationModeValidator = v.optional(
 );
 
 type LlmEvalModerationMode = "normal" | "preserve";
+type JsonRecord = Record<string, unknown>;
+
+const MAX_PACKAGE_ENV_DECLARATIONS = 50;
+const MAX_PACKAGE_CONFIG_DECLARATIONS = 50;
+const MAX_PACKAGE_ENV_VALUE_LENGTH = 200;
 
 async function runQueryRef<T>(
   ctx: { runQuery: (ref: never, args: never) => Promise<unknown> },
@@ -53,6 +58,102 @@ async function runMutationRef<T>(
   args: unknown,
 ): Promise<T> {
   return (await ctx.runMutation(ref as never, args as never)) as T;
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function sanitizePackageEnvironmentValue(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let normalized = "";
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 32 && code !== 127) normalized += value[index];
+  }
+  normalized = normalized.trim();
+  if (!normalized) return null;
+  return normalized.slice(0, MAX_PACKAGE_ENV_VALUE_LENGTH);
+}
+
+function normalizePackageEnvironmentStringList(input: unknown, limit: number): string[] {
+  const rawItems = Array.isArray(input) ? input : typeof input === "string" ? [input] : [];
+  const items: string[] = [];
+  const seen = new Set<string>();
+  for (const rawItem of rawItems) {
+    const value = isRecord(rawItem) ? rawItem.name : rawItem;
+    const normalized = sanitizePackageEnvironmentValue(value);
+    if (!normalized || seen.has(normalized)) continue;
+    items.push(normalized);
+    seen.add(normalized);
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+function normalizePackageEnvironmentEnvVars(input: unknown): Array<{
+  name: string;
+  required?: boolean;
+  description?: string;
+}> {
+  const rawItems = Array.isArray(input) ? input : typeof input === "string" ? [input] : [];
+  const envVars: Array<{ name: string; required?: boolean; description?: string }> = [];
+  const seen = new Set<string>();
+  for (const rawItem of rawItems) {
+    const name = sanitizePackageEnvironmentValue(isRecord(rawItem) ? rawItem.name : rawItem);
+    if (!name || seen.has(name)) continue;
+    const envVar: { name: string; required?: boolean; description?: string } = { name };
+    if (isRecord(rawItem)) {
+      if (typeof rawItem.required === "boolean") envVar.required = rawItem.required;
+      const description = sanitizePackageEnvironmentValue(rawItem.description);
+      if (description) envVar.description = description;
+    }
+    envVars.push(envVar);
+    seen.add(name);
+    if (envVars.length >= MAX_PACKAGE_ENV_DECLARATIONS) break;
+  }
+  return envVars;
+}
+
+export function packageOpenClawEnvironmentForPrompt(packageJson: unknown): JsonRecord | undefined {
+  if (!isRecord(packageJson)) return undefined;
+  const openclaw = isRecord(packageJson.openclaw) ? packageJson.openclaw : undefined;
+  const environment = isRecord(openclaw?.environment) ? openclaw.environment : undefined;
+  if (!environment) return undefined;
+
+  const requiredEnv = normalizePackageEnvironmentStringList(
+    environment.requiredEnv ?? environment.env,
+    MAX_PACKAGE_ENV_DECLARATIONS,
+  );
+  const optionalEnv = normalizePackageEnvironmentStringList(
+    environment.optionalEnv,
+    MAX_PACKAGE_ENV_DECLARATIONS,
+  );
+  const declaredEnvVars = normalizePackageEnvironmentEnvVars(environment.envVars);
+  const config = normalizePackageEnvironmentStringList(
+    environment.configPaths ?? environment.config,
+    MAX_PACKAGE_CONFIG_DECLARATIONS,
+  );
+  const primaryEnv = sanitizePackageEnvironmentValue(environment.primaryEnv);
+
+  const envVars = [
+    ...requiredEnv.map((name) => ({ name, required: true })),
+    ...optionalEnv.map((name) => ({ name, required: false })),
+    ...declaredEnvVars,
+  ];
+  const dedupedEnvVars = envVars.filter(
+    (envVar, index) => envVars.findIndex((candidate) => candidate.name === envVar.name) === index,
+  );
+  const requires: JsonRecord = {};
+  if (requiredEnv.length > 0) requires.env = requiredEnv;
+  if (config.length > 0) requires.config = config;
+
+  const openclawMetadata: JsonRecord = {};
+  if (Object.keys(requires).length > 0) openclawMetadata.requires = requires;
+  if (dedupedEnvVars.length > 0) openclawMetadata.envVars = dedupedEnvVars;
+  if (primaryEnv) openclawMetadata.primaryEnv = primaryEnv;
+
+  return Object.keys(openclawMetadata).length > 0 ? openclawMetadata : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +473,9 @@ export const evaluatePackageReleaseWithLlm = internalAction({
 
     const allContent = [readmeContent, ...fileContents.map((f) => f.content)].join("\n");
     const injectionSignals = detectInjectionPatterns(allContent);
+    const packageOpenClawMetadata = packageOpenClawEnvironmentForPrompt(
+      release.extractedPackageJson,
+    );
 
     const evalCtx: SkillEvalContext = {
       slug: pkg.name,
@@ -385,6 +489,7 @@ export const evaluatePackageReleaseWithLlm = internalAction({
       parsed: {
         frontmatter: {},
         metadata: {
+          ...(packageOpenClawMetadata ? { openclaw: packageOpenClawMetadata } : {}),
           compatibility: release.compatibility,
           capabilities: release.capabilities,
           verification: release.verification,
