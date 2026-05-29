@@ -2641,7 +2641,7 @@ export const getBySlugForStaff = query({
       staffUserIds.add(skill.manualOverride.reviewerUserId);
     }
     for (const log of rawAuditLogs) {
-      staffUserIds.add(log.actorUserId);
+      if (log.actorUserId) staffUserIds.add(log.actorUserId);
     }
     const publicUsers = await loadPublicUsersById(ctx, [...staffUserIds]);
     const overrideReviewer = skill.manualOverride?.reviewerUserId
@@ -2649,7 +2649,7 @@ export const getBySlugForStaff = query({
       : null;
     const auditLogs: StaffSkillAuditLogEntry[] = rawAuditLogs.map((log) => ({
       ...log,
-      actor: publicUsers.get(log.actorUserId) ?? null,
+      actor: log.actorUserId ? (publicUsers.get(log.actorUserId) ?? null) : null,
     }));
 
     const forkOfSkill = skill.forkOf?.skillId ? await ctx.db.get(skill.forkOf.skillId) : null;

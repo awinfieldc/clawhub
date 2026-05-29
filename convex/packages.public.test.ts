@@ -582,7 +582,7 @@ const revokePackagePublishTokensForPackageBatchInternalHandler = (
 const restoreOwnedPackagesForUnbanBatchInternalHandler = (
   restoreOwnedPackagesForUnbanBatchInternal as unknown as WrappedHandler<
     {
-      actorUserId: string;
+      actorUserId?: string;
       ownerUserId: string;
       bannedAt: number;
       cursor?: string;
@@ -9121,6 +9121,46 @@ describe("owned package sanction batches", () => {
       }),
     );
     expect(patch).not.toHaveBeenCalledWith("packageReleases:malicious", expect.anything());
+  });
+
+  it("restores appeal-service packages without attributing package audit to the target user", async () => {
+    const { ctx, insert } = makeOwnedPackageBatchCtx({
+      pkg: makePackageDoc({
+        softDeletedAt: 1_000,
+        softDeletedReason: "user.banned",
+        softDeletedByRole: "moderator",
+      }),
+      releases: [
+        makeReleaseDoc({
+          _id: "packageReleases:demo-1",
+          softDeletedAt: 1_000,
+          distTags: ["latest"],
+          version: "1.0.0",
+          changelog: "",
+          compatibility: null,
+          capabilities: null,
+          verification: null,
+        }),
+      ],
+    });
+
+    const result = await restoreOwnedPackagesForUnbanBatchInternalHandler(ctx as never, {
+      ownerUserId: "users:owner",
+      bannedAt: 1_000,
+    });
+
+    expect(result).toMatchObject({ restoredCount: 1, scheduled: false });
+    expect(insert).toHaveBeenCalledWith(
+      "auditLogs",
+      expect.objectContaining({
+        action: "package.undelete",
+        metadata: expect.objectContaining({ source: "service" }),
+      }),
+    );
+    const packageAudit = insert.mock.calls.find(
+      ([table, doc]) => table === "auditLogs" && doc.action === "package.undelete",
+    )?.[1];
+    expect(packageAudit).not.toHaveProperty("actorUserId");
   });
 
   it("restores ban-hidden packages owned through the user's personal publisher", async () => {

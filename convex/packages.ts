@@ -2959,11 +2959,11 @@ async function restorePackageDoc(
   ctx: Pick<MutationCtx, "db">,
   pkg: Doc<"packages">,
   params: {
-    actorUserId: Id<"users">;
+    actorUserId?: Id<"users">;
     actorRole?: Doc<"users">["role"];
     allowBanRestore?: boolean;
     releaseSoftDeletedAt?: number;
-    source: "cli" | "dashboard";
+    source: "cli" | "dashboard" | "service";
   },
 ) {
   if (!pkg.softDeletedAt) {
@@ -3069,7 +3069,7 @@ async function restorePackageDoc(
     ownerKind: restoreOwner?.kind,
   });
   await ctx.db.insert("auditLogs", {
-    actorUserId: params.actorUserId,
+    ...(params.actorUserId ? { actorUserId: params.actorUserId } : {}),
     action: "package.undelete",
     targetType: "package",
     targetId: pkg._id,
@@ -3316,15 +3316,15 @@ export const applyBanToOwnedPackagesBatchInternal = internalMutation({
 
 export const restoreOwnedPackagesForUnbanBatchInternal = internalMutation({
   args: {
-    actorUserId: v.id("users"),
+    actorUserId: v.optional(v.id("users")),
     ownerUserId: v.id("users"),
     bannedAt: v.number(),
     cursor: v.optional(v.string()),
     scope: ownedPackageScanScopeValidator,
   },
   handler: async (ctx, args) => {
-    const actor = await ctx.db.get(args.actorUserId);
-    if (!actor || actor.deletedAt || actor.deactivatedAt) {
+    const actor = args.actorUserId ? await ctx.db.get(args.actorUserId) : null;
+    if (args.actorUserId && (!actor || actor.deletedAt || actor.deactivatedAt)) {
       throw new ConvexError("Unauthorized");
     }
     const owner = await ctx.db.get(args.ownerUserId);
@@ -3360,11 +3360,11 @@ export const restoreOwnedPackagesForUnbanBatchInternal = internalMutation({
       }
 
       await restorePackageDoc(ctx, pkg, {
-        actorUserId: actor._id,
-        actorRole: actor.role,
+        actorUserId: actor?._id,
+        actorRole: actor?.role,
         allowBanRestore: true,
         releaseSoftDeletedAt: args.bannedAt,
-        source: "dashboard",
+        source: actor ? "dashboard" : "service",
       });
       restoredCount += 1;
     }

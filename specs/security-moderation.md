@@ -229,6 +229,18 @@ See also: [acceptable-usage.md](./acceptable-usage.md) for the marketplace polic
   - sets `deletedAt` on the user
 - Admins can manually unban (`deletedAt` + `banReason` cleared); revoked API tokens
   stay revoked and should be recreated by the user.
+- The external appeals site may query ban context and accept account-ban appeals
+  through the dedicated `CLAWHUB_BAN_APPEALS_TOKEN` service path. Accepted
+  appeals record the Discord reviewer id in audit metadata; the token must not
+  authorize any other moderation action. Accepted appeals must use the same
+  matching-ban restore behavior as admin unbans for skills and packages/plugins
+  and must only clear accounts with a current `user.ban` or
+  `user.autoban.malware` audit matching the ban timestamp.
+  Package/plugin restore audit entries from this service path are actorless;
+  reviewer provenance belongs on the `user.unban` service audit metadata, not
+  on the restored user's package audit rows.
+  Ban context lookup must tolerate duplicate Convex Auth account rows by
+  selecting the currently banned user with matching ban audit evidence.
 - Unban restore batches only restore packages/plugins hidden by the matching
   ban timestamp and must stop if the user has been banned again.
 - Stale unban restore batches must stop if the user was banned again before a
