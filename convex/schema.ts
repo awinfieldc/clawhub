@@ -1224,6 +1224,16 @@ const packagePublishTokens = defineTable({
   .index("by_package", ["packageId", "version", "createdAt"])
   .index("by_package_revoked_created", ["packageId", "revokedAt", "createdAt"]);
 
+const packagePublishUploadTickets = defineTable({
+  kind: v.union(v.literal("user"), v.literal("github-actions")),
+  userId: v.optional(v.id("users")),
+  publishTokenId: v.optional(v.id("packagePublishTokens")),
+  createdAt: v.number(),
+  expiresAt: v.number(),
+  usedAt: v.optional(v.number()),
+  storageId: v.optional(v.id("_storage")),
+});
+
 const packageSearchDigest = defineTable({
   packageId: v.id("packages"),
   name: v.string(),
@@ -2144,6 +2154,7 @@ export default defineSchema({
   packageStatEvents,
   packageTrustedPublishers,
   packagePublishTokens,
+  packagePublishUploadTickets,
   packageBadges,
   packageSearchDigest,
   packageCapabilitySearchDigest,

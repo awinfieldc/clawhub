@@ -116,6 +116,28 @@ See also: [acceptable-usage.md](./acceptable-usage.md) for the marketplace polic
 - Skills directory supports an optional "Hide suspicious" filter to exclude
   active-but-flagged (`flagged.suspicious`) entries from browse/search results.
 
+## Package publish upload boundary
+
+- Package publish is multipart-only. `POST /api/v1/packages` must reject JSON
+  request bodies, including bodies that reference pre-existing storage IDs.
+- Public HTTP package publish payloads must not accept caller-supplied `files`
+  or `artifact` metadata. Internal publish actions may receive that metadata
+  only after the HTTP boundary derives it from uploaded multipart bytes or a
+  staged ClawPack blob.
+- Package publish accepts either multipart `files` uploads or one `clawpack`
+  tarball reference, never both in the same request. `clawpack` may be a direct
+  `.tgz` file part or a Convex storage id created by the upload-url flow. The
+  storage-id path must include the matching `clawpackUploadTicket`, and the
+  server must reject tickets from a different auth context, expired or used
+  tickets, and storage blobs created before the ticket.
+- Direct package publish multipart bytes are capped at 18MB so callers get a
+  clear ClawHub validation error before hitting Convex's 20MB HTTP action body
+  cap. ClawPack tarballs keep the 120MB package tarball cap through staged
+  storage uploads.
+- For tarball uploads, ClawHub stores the uploaded tarball, derives its
+  artifact hashes and npm metadata, and derives package file metadata from the
+  tarball contents.
+
 ## Skill moderation pipeline
 
 - New skill publishes now persist a deterministic static scan result on the version.
