@@ -8,7 +8,8 @@ import { getGitHubProviderAccountId } from "./lib/githubIdentity";
 import { getUserByHandleOrPersonalPublisher } from "./lib/publishers";
 
 const DEFAULT_BATCH_SIZE = 25;
-const MAX_BATCH_SIZE = 50;
+const MAX_ACTION_BATCH_SIZE = 50;
+const MAX_LIST_BATCH_SIZE = 500;
 const DEFAULT_MAX_PAGES = 1;
 const MAX_MAX_PAGES = 20;
 
@@ -66,7 +67,7 @@ export const listGitHubCreatedAtBackfillPageInternal = internalQuery({
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const batchSize = clampPositiveInteger(args.batchSize, DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE);
+    const batchSize = clampPositiveInteger(args.batchSize, DEFAULT_BATCH_SIZE, MAX_LIST_BATCH_SIZE);
     const page = await ctx.db
       .query("authAccounts")
       .withIndex("providerAndAccountId", (q) => q.eq("provider", "github"))
@@ -178,7 +179,7 @@ export const backfillGitHubCreatedAtInternal = internalAction({
     handles: v.optional(v.array(v.string())),
   },
   handler: async (ctx: ActionCtx, args): Promise<BackfillResult> => {
-    const batchSize = clampPositiveInteger(args.batchSize, DEFAULT_BATCH_SIZE, MAX_BATCH_SIZE);
+    const batchSize = clampPositiveInteger(args.batchSize, DEFAULT_BATCH_SIZE, MAX_ACTION_BATCH_SIZE);
     const maxPages = clampPositiveInteger(args.maxPages, DEFAULT_MAX_PAGES, MAX_MAX_PAGES);
     const dryRun = args.dryRun ?? false;
     const fetchedAt = Date.now();
