@@ -4,7 +4,7 @@
  */
 
 /** Lucide icon name used as a key to look up the component at render time. */
-type NavIconName = "wrench" | "plug";
+type NavIconName = "wrench" | "plug" | "user";
 
 interface NavItemBase {
   /** Visible link text */
@@ -50,7 +50,7 @@ const PUBLISHERS_SEARCH = { q: undefined } as const;
 
 // ---------------------------------------------------------------------------
 // Primary nav items (desktop tabs row + mobile dropdown top section)
-// These map to the "content-type" tabs: Skills | Plugins
+// These map to the content-type tabs: Skills | Plugins | Publishers
 // ---------------------------------------------------------------------------
 
 export const PRIMARY_NAV_ITEMS: NavItem[] = [
@@ -67,6 +67,12 @@ export const PRIMARY_NAV_ITEMS: NavItem[] = [
     icon: "plug",
     activePathPrefixes: ["/plugin/"],
   },
+  {
+    label: "Publishers",
+    to: "/publishers",
+    search: PUBLISHERS_SEARCH,
+    icon: "user",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -74,11 +80,6 @@ export const PRIMARY_NAV_ITEMS: NavItem[] = [
 // ---------------------------------------------------------------------------
 
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
-  {
-    label: "Publishers",
-    to: "/publishers",
-    search: PUBLISHERS_SEARCH,
-  },
   {
     label: "Docs",
     href: "https://docs.openclaw.ai/clawhub/",

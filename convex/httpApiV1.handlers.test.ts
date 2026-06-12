@@ -64,6 +64,18 @@ function hasPackageNameArgs(args: unknown): args is { name: string } {
   return typeof value.name === "string";
 }
 
+function hasPluginRecommendedScoreReadinessArgs(
+  args: unknown,
+): args is { families: Array<"code-plugin" | "bundle-plugin"> } {
+  if (!args || typeof args !== "object") return false;
+  const value = args as Record<string, unknown>;
+  return (
+    Array.isArray(value.families) &&
+    value.families.includes("code-plugin") &&
+    value.families.includes("bundle-plugin")
+  );
+}
+
 function hasPackageDownloadMetricTarget(args: unknown, packageId: string) {
   if (!args || typeof args !== "object") return false;
   const value = args as Record<string, unknown>;
@@ -117,6 +129,7 @@ function makeCatalogItem(
     family: "code-plugin" | "bundle-plugin" | "skill";
     updatedAt: number;
     score?: number;
+    stats?: { downloads: number; installs: number; stars: number; versions: number };
   },
 ) {
   return {
@@ -128,6 +141,7 @@ function makeCatalogItem(
     createdAt: options.updatedAt,
     updatedAt: options.updatedAt,
     ...(typeof options.score === "number" ? { score: options.score } : {}),
+    ...(options.stats ? { stats: options.stats } : {}),
   };
 }
 
@@ -7514,6 +7528,12 @@ describe("httpApiV1 handlers", () => {
       updatedAt: 100,
     };
     const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) {
+        return 2;
+      }
+      if (hasPluginRecommendedScoreReadinessArgs(args)) {
+        return false;
+      }
       if (args.family === "code-plugin") {
         return { page: [codePlugin], isDone: true, continueCursor: "" };
       }
@@ -7530,13 +7550,18 @@ describe("httpApiV1 handlers", () => {
     );
 
     expect(response.status).toBe(200);
-    expect((await response.json()).items.map((entry: { name: string }) => entry.name)).toEqual([
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual([
       "code-plugin",
       "bundle-plugin",
     ]);
-    const families = runQuery.mock.calls.map(([, args]) => (args as { family?: string }).family);
+    expect(json.totalCount).toBe(2);
+    const families = runQuery.mock.calls
+      .map(([, args]) => (args as { family?: string }).family)
+      .filter(Boolean);
     expect(families).toEqual(["code-plugin", "bundle-plugin"]);
     for (const [, args] of runQuery.mock.calls) {
+      if (!("family" in (args as Record<string, unknown>))) continue;
       expect(args).toEqual(
         expect.objectContaining({
           category: undefined,
@@ -7547,7 +7572,12 @@ describe("httpApiV1 handlers", () => {
   });
 
   it("plugins list forwards category to both plugin families", async () => {
-    const runQuery = vi.fn().mockResolvedValue({ page: [], isDone: true, continueCursor: "" });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (hasPluginRecommendedScoreReadinessArgs(args)) {
+        return false;
+      }
+      return { page: [], isDone: true, continueCursor: "" };
+    });
     const runMutation = vi.fn().mockResolvedValue(okRate());
 
     const response = await __handlers.listPluginsV1Handler(
@@ -7557,6 +7587,7 @@ describe("httpApiV1 handlers", () => {
 
     expect(response.status).toBe(200);
     for (const [, args] of runQuery.mock.calls) {
+      if (hasPluginRecommendedScoreReadinessArgs(args)) continue;
       expect(args).toEqual(
         expect.objectContaining({
           category: "data",
@@ -7564,6 +7595,201 @@ describe("httpApiV1 handlers", () => {
         }),
       );
     }
+  });
+
+  it("plugins list recommended sort uses weighted scores across plugin families", async () => {
+    const codePlugin = makeCatalogItem("code-starred", {
+      family: "code-plugin",
+      updatedAt: 100,
+      stats: { downloads: 10, installs: 20, stars: 5, versions: 1 },
+    });
+    const bundlePlugin = makeCatalogItem("bundle-downloaded", {
+      family: "bundle-plugin",
+      updatedAt: 200,
+      stats: { downloads: 1_000, installs: 0, stars: 1, versions: 1 },
+    });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 2;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return false;
+      expect(args).toEqual(expect.objectContaining({ sort: "recommended" }));
+      if (args.family === "code-plugin") {
+        return { page: [codePlugin], isDone: true, continueCursor: "" };
+      }
+      if (args.family === "bundle-plugin") {
+        return { page: [bundlePlugin], isDone: true, continueCursor: "" };
+      }
+      throw new Error(`unexpected family ${String(args.family)}`);
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.listPluginsV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request("https://example.com/api/v1/plugins?limit=2&sort=recommended"),
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual([
+      "bundle-downloaded",
+      "code-starred",
+    ]);
+  });
+
+  it("plugins list recommended sort lets strong downloads beat smaller installs", async () => {
+    const codePlugin = makeCatalogItem("code-downloaded", {
+      family: "code-plugin",
+      updatedAt: 100,
+      stats: { downloads: 43_080, installs: 2, stars: 0, versions: 1 },
+    });
+    const bundlePlugin = makeCatalogItem("bundle-installed", {
+      family: "bundle-plugin",
+      updatedAt: 200,
+      stats: { downloads: 393, installs: 74, stars: 0, versions: 1 },
+    });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 2;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return false;
+      expect(args).toEqual(expect.objectContaining({ sort: "recommended" }));
+      if (args.family === "code-plugin") {
+        return { page: [codePlugin], isDone: true, continueCursor: "" };
+      }
+      if (args.family === "bundle-plugin") {
+        return { page: [bundlePlugin], isDone: true, continueCursor: "" };
+      }
+      throw new Error(`unexpected family ${String(args.family)}`);
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.listPluginsV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request("https://example.com/api/v1/plugins?limit=2&sort=recommended"),
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual([
+      "code-downloaded",
+      "bundle-installed",
+    ]);
+  });
+
+  it("plugins list falls back to updated sort while recommendation scores backfill", async () => {
+    const codePlugin = makeCatalogItem("code-older-high-score", {
+      family: "code-plugin",
+      updatedAt: 100,
+      stats: { downloads: 50_000, installs: 500, stars: 10, versions: 1 },
+    });
+    const bundlePlugin = makeCatalogItem("bundle-newer-low-score", {
+      family: "bundle-plugin",
+      updatedAt: 200,
+      stats: { downloads: 1, installs: 0, stars: 0, versions: 1 },
+    });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 2;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return true;
+      expect(args).toEqual(expect.objectContaining({ sort: "updated" }));
+      if (args.family === "code-plugin") {
+        return { page: [codePlugin], isDone: true, continueCursor: "" };
+      }
+      if (args.family === "bundle-plugin") {
+        return { page: [bundlePlugin], isDone: true, continueCursor: "" };
+      }
+      throw new Error(`unexpected family ${String(args.family)}`);
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.listPluginsV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request("https://example.com/api/v1/plugins?limit=2&sort=recommended"),
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual([
+      "bundle-newer-low-score",
+      "code-older-high-score",
+    ]);
+  });
+
+  it("plugins list keeps updated fallback sort from recommended pagination cursors", async () => {
+    const fallbackCursor = `pkgplugins:${JSON.stringify({
+      codePlugins: { cursor: null, offset: 0, pageSize: 1, done: false },
+      bundlePlugins: { cursor: null, offset: 0, pageSize: 1, done: true },
+      recommendedFallback: "updated",
+    })}`;
+    const codePlugin = makeCatalogItem("code-next", {
+      family: "code-plugin",
+      updatedAt: 100,
+      stats: { downloads: 50_000, installs: 500, stars: 10, versions: 1 },
+    });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 1;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) {
+        throw new Error("readiness should come from the pagination cursor");
+      }
+      expect(args).toEqual(expect.objectContaining({ sort: "updated" }));
+      if (args.family === "code-plugin") {
+        return { page: [codePlugin], isDone: true, continueCursor: "" };
+      }
+      throw new Error(`unexpected family ${String(args.family)}`);
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.listPluginsV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request(
+        `https://example.com/api/v1/plugins?limit=1&sort=recommended&cursor=${encodeURIComponent(
+          fallbackCursor,
+        )}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual(["code-next"]);
+  });
+
+  it("plugins list keeps legacy recommended cursors on recommended sort", async () => {
+    const legacyCursor = `pkgplugins:${JSON.stringify({
+      codePlugins: { cursor: "legacy-code-next", offset: 0, pageSize: 1, done: false },
+      bundlePlugins: { cursor: null, offset: 0, pageSize: 1, done: true },
+    })}`;
+    const codePlugin = makeCatalogItem("code-next", {
+      family: "code-plugin",
+      updatedAt: 100,
+      stats: { downloads: 50_000, installs: 500, stars: 10, versions: 1 },
+    });
+    const readinessCalls: unknown[] = [];
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 1;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) {
+        readinessCalls.push(args);
+        return true;
+      }
+      expect(args).toEqual(
+        expect.objectContaining({
+          family: "code-plugin",
+          sort: "recommended",
+          paginationOpts: expect.objectContaining({ cursor: "legacy-code-next" }),
+        }),
+      );
+      return { page: [codePlugin], isDone: true, continueCursor: "" };
+    });
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+
+    const response = await __handlers.listPluginsV1Handler(
+      makeCtx({ runQuery, runMutation }),
+      new Request(
+        `https://example.com/api/v1/plugins?limit=1&sort=recommended&cursor=${encodeURIComponent(
+          legacyCursor,
+        )}`,
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(readinessCalls).toEqual([]);
+    const json = await response.json();
+    expect(json.items.map((entry: { name: string }) => entry.name)).toEqual(["code-next"]);
   });
 
   it("plugins list rejects invalid categories", async () => {
@@ -7594,6 +7820,8 @@ describe("httpApiV1 handlers", () => {
       updatedAt: 200,
     });
     const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 3;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return false;
       const pagination = args.paginationOpts as { cursor: string | null };
       if (args.family === "code-plugin" && pagination.cursor === null) {
         return { page: [codeNewest], isDone: false, continueCursor: "code-cursor" };
@@ -7647,7 +7875,11 @@ describe("httpApiV1 handlers", () => {
   });
 
   it("plugins list ignores stale plugin search cursors", async () => {
-    const runQuery = vi.fn().mockResolvedValue({ page: [], isDone: true, continueCursor: "" });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (Object.keys(args).length === 0) return 0;
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return false;
+      return { page: [], isDone: true, continueCursor: "" };
+    });
     const runMutation = vi.fn().mockResolvedValue(okRate());
     const staleSearchCursor = `pkgpluginsearch:${JSON.stringify({
       codePlugins: { cursor: "code-search", offset: 0, pageSize: 2, done: false },
@@ -7669,7 +7901,10 @@ describe("httpApiV1 handlers", () => {
   });
 
   it("package and plugin lists ignore stale skill cursors", async () => {
-    const runQuery = vi.fn().mockResolvedValue({ page: [], isDone: true, continueCursor: "" });
+    const runQuery = vi.fn((_, args: Record<string, unknown>) => {
+      if (hasPluginRecommendedScoreReadinessArgs(args)) return false;
+      return { page: [], isDone: true, continueCursor: "" };
+    });
     const runMutation = vi.fn().mockResolvedValue(okRate());
     const staleSkillCursor = `skillcat:${JSON.stringify({
       cursor: "skill-cursor",
