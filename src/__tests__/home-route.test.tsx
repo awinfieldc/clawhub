@@ -86,24 +86,27 @@ describe("home route", () => {
     return (Route as unknown as { __config: { loader: () => Promise<unknown> } }).__config.loader;
   }
 
-  function clickHeroLabelTriple() {
-    const label = screen.getByText("BUILT BY THE COMMUNITY");
+  function clickHeroHeadlineTriple() {
+    const headline = screen.getByRole("button", { name: /Equip/ });
     act(() => {
-      fireEvent.click(label);
-      fireEvent.click(label);
-      fireEvent.click(label);
+      fireEvent.click(headline);
+      fireEvent.click(headline);
+      fireEvent.click(headline);
     });
-    return label;
   }
 
-  it("renders the restored community hero copy", async () => {
+  it("renders the polished hero copy without the community eyebrow", async () => {
     await renderHome();
 
-    expect(screen.getByText("BUILT BY THE COMMUNITY").textContent).toBe("BUILT BY THE COMMUNITY");
+    expect(screen.queryByText("BUILT BY THE COMMUNITY")).toBeNull();
+    expect(
+      Array.from(document.querySelectorAll(".home-v2-cycle-word")).map((el) => el.textContent),
+    ).toEqual(["Unleash", "Ship", "Build", "Create", "Unleash"]);
     expect(screen.getByText("Discover skills and plugins from top creators").textContent).toBe(
       "Discover skills and plugins from top creators",
     );
     expect(screen.queryByRole("link", { name: "200k+ publishers" })).toBeNull();
+    expect(screen.getByRole("button", { name: /Equip/ }).tabIndex).toBe(0);
   });
 
   it("renders the catalog and new homepage sections without the old hero search", async () => {
@@ -162,9 +165,8 @@ describe("home route", () => {
     vi.spyOn(Math, "random").mockReturnValue(0.5);
 
     await renderHome();
-    const label = clickHeroLabelTriple();
+    clickHeroHeadlineTriple();
 
-    expect(label.className).toContain("home-v2-hero-label-active");
     expect(document.querySelector(".home-v2-headline-slots")).toBeTruthy();
     expect(document.querySelector(".home-v2-confetti")).toBeTruthy();
   });
@@ -182,7 +184,7 @@ describe("home route", () => {
       .mockReturnValueOnce(0.3);
 
     await renderHome();
-    clickHeroLabelTriple();
+    clickHeroHeadlineTriple();
 
     act(() => {
       vi.advanceTimersByTime(2400);
@@ -204,7 +206,7 @@ describe("home route", () => {
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 
     await renderHome();
-    clickHeroLabelTriple();
+    clickHeroHeadlineTriple();
 
     act(() => {
       vi.advanceTimersByTime(2400);
