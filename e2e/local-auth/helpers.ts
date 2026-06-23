@@ -1,7 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, type Page, type TestInfo } from "@playwright/test";
-import { buildSkillDetailHref } from "../../src/lib/ownerRoute";
+import { buildPublisherProfileHref, buildSkillDetailHref } from "../../src/lib/ownerRoute";
+import {
+  buildPluginDetailHref,
+  buildPluginSecurityAuditHref,
+  buildPluginValidationHref,
+} from "../../src/lib/pluginRoutes";
 import { waitForHydration } from "../helpers/runtimeErrors";
 
 type DevPersona = "owner" | "user" | "admin" | "abusePublisher";
@@ -72,6 +77,14 @@ function parseSkillDetailPath(pathname: string) {
   }
   throw new Error(`Expected skill detail path, received ${pathname}`);
 }
+
+export {
+  buildPluginDetailHref,
+  buildPluginSecurityAuditHref,
+  buildPluginValidationHref,
+  buildPublisherProfileHref,
+  buildSkillDetailHref,
+};
 
 export function skillMd(args: { slug: string; displayName: string; versionLabel: string }) {
   return `---
