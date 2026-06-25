@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation } from "convex/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { Container } from "../../components/layout/Container";
 import { SignInButton } from "../../components/SignInButton";
@@ -19,6 +19,9 @@ export function CliDeviceAuth() {
   const search = Route.useSearch() as { code?: string };
   const [code, setCode] = useState(search.code ?? "");
   const [status, setStatus] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<"approve" | "deny" | null>(null);
+  const [isComplete, setIsComplete] = useState(false);
+  const actionInFlight = useRef(false);
   const { isAuthenticated, isLoading, me } = useAuthStatus();
   const approve = useMutation(api.cliDeviceAuth.approve);
   const deny = useMutation(api.cliDeviceAuth.deny);
@@ -29,24 +32,38 @@ export function CliDeviceAuth() {
       setStatus("Enter the code shown in your terminal.");
       return;
     }
+    if (actionInFlight.current || isComplete) return;
+    actionInFlight.current = true;
+    setPendingAction("approve");
     setStatus("Authorizing...");
     try {
       await approve({ userCode: trimmed });
+      setIsComplete(true);
       setStatus("Authorized. You can return to your terminal.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Authorization failed.");
+    } finally {
+      actionInFlight.current = false;
+      setPendingAction(null);
     }
   };
 
   const cancel = async () => {
     const trimmed = code.trim();
     if (!trimmed) return;
+    if (actionInFlight.current || isComplete) return;
+    actionInFlight.current = true;
+    setPendingAction("deny");
     setStatus("Denying...");
     try {
       await deny({ userCode: trimmed });
+      setIsComplete(true);
       setStatus("Denied. You can close this page.");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Deny failed.");
+    } finally {
+      actionInFlight.current = false;
+      setPendingAction(null);
     }
   };
 
@@ -82,10 +99,19 @@ export function CliDeviceAuth() {
                   />
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button type="button" onClick={submit}>
+                  <Button
+                    type="button"
+                    onClick={submit}
+                    disabled={pendingAction !== null || isComplete}
+                  >
                     Authorize
                   </Button>
-                  <Button type="button" variant="outline" onClick={cancel}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={cancel}
+                    disabled={pendingAction !== null || isComplete}
+                  >
                     Deny
                   </Button>
                 </div>
