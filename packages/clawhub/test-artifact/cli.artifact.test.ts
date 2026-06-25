@@ -1,11 +1,12 @@
 /* @vitest-environment node */
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { strToU8, zipSync } from "fflate";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -243,6 +244,31 @@ async function writeConfigWithToken(root: string, registry: string) {
 }
 
 describe("built CLI artifact", () => {
+  it("resolves the package version from a flattened CLI artifact", async () => {
+    const publishedRoot = await makeTmpDir("clawhub-artifact-version-");
+    const flatDistDir = join(publishedRoot, "dist");
+    const flatCliPath = join(flatDistDir, "cli.js");
+    const buildInfoPath = join(packageRoot, "dist", "cli", "buildInfo.js");
+    await mkdir(flatDistDir, { recursive: true });
+    await writeFile(flatCliPath, await readFile(buildInfoPath));
+    await writeFile(
+      join(publishedRoot, "package.json"),
+      await readFile(join(packageRoot, "package.json")),
+    );
+
+    const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
+      version: string;
+    };
+    const result = runNode([
+      "--input-type=module",
+      "-e",
+      `const artifact = await import(${JSON.stringify(pathToFileURL(flatCliPath).href)}); console.log(artifact.getCliVersion());`,
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe(packageJson.version);
+  });
+
   it("documents automatic skill publish versions without a bump flag", () => {
     const result = runNode([binPath, "skill", "publish", "--help"]);
 

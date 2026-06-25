@@ -6,13 +6,19 @@ import { fileURLToPath } from "node:url";
 type PackageJson = { version?: string };
 
 function readPackageVersion() {
-  try {
-    const path = join(dirname(fileURLToPath(import.meta.url)), "../../package.json");
-    const raw = readFileSync(path, "utf8");
-    const pkg = JSON.parse(raw) as PackageJson;
-    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-  } catch {
-    return "0.0.0";
+  let current = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    try {
+      const raw = readFileSync(join(current, "package.json"), "utf8");
+      const pkg = JSON.parse(raw) as PackageJson;
+      if (typeof pkg.version === "string") return pkg.version;
+    } catch {
+      // Keep walking until the package root is found.
+    }
+
+    const parent = dirname(current);
+    if (parent === current) return "0.0.0";
+    current = parent;
   }
 }
 
