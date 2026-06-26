@@ -153,5 +153,17 @@ describe("deviceAuth", () => {
         ),
       ).rejects.toThrow("expired");
     });
+
+    it("should stop polling when the token endpoint never settles", async () => {
+      global.fetch = vi.fn(() => new Promise<Response>(() => {}));
+
+      await expect(
+        pollForDeviceToken(
+          { apiUrl: "https://api.example", siteUrl: "https://clawhub.ai" },
+          "device_code_123",
+          { interval: 0.01, expiresIn: 0.03 },
+        ),
+      ).rejects.toThrow("Device code expired (timeout)");
+    });
   });
 });
