@@ -107,6 +107,7 @@ jobs:
             const { owner, repo } = context.repo;
 
             let locked = 0;
+            let failedLocks = 0;
             let inspected = 0;
             let page = 1;
 
@@ -156,16 +157,24 @@ jobs:
                   continue;
                 }
 
-                await github.rest.issues.lock({
-                  owner,
-                  repo,
-                  issue_number: issue.number,
-                  lock_reason: "resolved",
-                });
-                locked += 1;
+                try {
+                  await github.rest.issues.lock({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    lock_reason: "resolved",
+                  });
+                  locked += 1;
+                } catch (error) {
+                  failedLocks += 1;
+                  const message = error instanceof Error ? error.message : String(error);
+                  core.warning(`Failed to lock closed issue #${issue.number}: ${message}`);
+                }
               }
 
               page += 1;
             }
 
-            core.info(`Inspected ${inspected} closed issues; locked ${locked}.`);
+            core.info(
+              `Inspected ${inspected} closed issues; locked ${locked}; failed to lock ${failedLocks}.`,
+            );
