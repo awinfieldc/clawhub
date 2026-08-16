@@ -15,6 +15,9 @@ permissions:
 
 jobs:
   sync:
+    # Scheduled production maintenance belongs to the upstream repository.
+    # Forks may still invoke this workflow manually for intentional testing.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.repository == 'openclaw/clawhub' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
