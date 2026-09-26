@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/axiomhq/skills",
-  "resolvedCommit": "0e98ebaeec76a70c8fda9a7737605800c2f1245d",
+  "resolvedCommit": "a3ea3f29a0da334175bb8befb4dca1325a7d4d00",
   "license": "MIT",
   "skills": {
     "axiom-alerting": {
